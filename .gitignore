@@ -97,3 +97,6 @@ work/
 
 # parameters directory
 models/
+
+# Given Dataset
+data/
