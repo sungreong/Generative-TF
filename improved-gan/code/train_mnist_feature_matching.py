@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 #
 #   train_mnist_feature_matching.py
 #       date. 5/8/2017
@@ -5,6 +6,11 @@
 #   (ref.)
 #   https://github.com/openai/improved-gan/tree/master/mnist_svhn_cifar10
 #
+'''
+Feature matchingは、Discriminatorにxとx~を入力した時のそれぞれの中間層出力の二乗誤差を
+小さくすることでGeneratorがより本物に近いデータを生成できるようにするテクニックです。
+実装する時は出力層に一番近い中間層出力（活性化関数を通した後の値）をマッチさせれば良いと思います。
+'''
 
 import numpy as np
 import tensorflow as tf
@@ -68,6 +74,7 @@ def discriminator(inputs, reuse=False):
         net = gaussian_noise_layer(net, sigma=0.5)
         net = tf.layers.dense(net,
                     num_units[5], activation=tf.nn.relu, name='discr5')
+        mom_out = net       # forwarding to feature matching
         net = gaussian_noise_layer(net, sigma=0.5)
         discriminator_out = tf.layers.dense(net, 
                     num_units[6], activation=None, name='discr6')
@@ -75,7 +82,63 @@ def discriminator(inputs, reuse=False):
     vars_d = tf.get_collection(
                 tf.GraphKeys.TRAINABLE_VARIABLES, scope='discriminator')
 
-    return discriminator_out, vars_d
+    return discriminator_out, mom_out, vars_d
+
+
+def inference(x_lab, x_unl, y_):
+    # labelled data
+    py_x_lab, feat_x_lab, _ = discriminator(x_lab)
+
+    # unlabelled data
+    py_x_unl, _, _ = discriminator(x_unl)
+
+    # image generation
+    x_generated = generator(some_noise)         # need to fix "some_noise"
+    py_x_g, feat_x_g = discriminator(x_generated)
+    
+    return py_x_lab, feat_x_lab, py_x_unlab, py_x_g, feat_x_g
+
+
+def loss(py_x_lab, py_x_unlab, py_x_g, y_, feat_actual, feat_fake):
+    # supervised loss
+    loss_lab = tf.losses.softmax_cross_entropy()
+
+    # unsupervised loss
+    log_zx_unl = tf.reduce_logsumexp(py_x_unl, axis=1)
+    log_dx_unl = log_zx_unl - tf.nn.softplus(log_zx_unl)
+
+    loss_unlab = tf.reduced_mean(log_dx_unl)
+
+    # adversarial loss
+
+
+    # feature matching
+
+    return loss_tot
+
+
+
+
+def fm_loss(feat_actual, feat_fake):
+    '''
+      calculate feature matching loss
+        mom_gen = T.mean(LL.get_output(layers[-3], gen_dat), axis=0)
+        mom_real = T.mean(LL.get_output(layers[-3], x_unl), axis=0)
+        oss_gen = T.mean(T.square(mom_gen - mom_real))
+    '''
+
+    return tf.losses.mean_squared_error(feat_actual, feat_fake)
+
+
+
+if __name__ == '__main__':
+
+    # tensorflow placeholders
+    x_lab = tf.placeholder(tf.float32, [None, n_input])
+    x_unl = tf.placeholder(tf.float32, [None, n_input])
+    y_ = tf.placeholder(tf.float32, [None, 10])
+
+
 
 '''
   on-going ...
