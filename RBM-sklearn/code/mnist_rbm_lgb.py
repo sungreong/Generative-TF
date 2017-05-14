@@ -1,6 +1,6 @@
 #
 #   mnist_rbm_lgb.py
-#       date. 4/12/2017
+#       date. 4/12/2017, 5/11
 #
 
 import os
@@ -14,7 +14,9 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import accuracy_score
 from tensorflow.examples.tutorials.mnist import input_data
 
+
 N_LABEL = 1000
+N_UNLAB = 50000
 N_CV = 1000
 
 def load_data(path_from_home='Sources/Python.d/TensorFlow/MNIST_data'):
@@ -31,35 +33,32 @@ if __name__ == '__main__':
 
     X_train0 = mnist.train.images
     y_train0 = mnist.train.labels
-    X_train = X_train0[:N_LABEL]
-    y_train = y_train0[:N_LABEL]
-
-    X_train_to_rbm = X_train0[N_LABEL:]
+    X_train_lab = X_train0[:N_LABEL]
+    y_train_lab = y_train0[:N_LABEL]
+    X_train_unlab = X_train0[N_LABEL:N_UNLAB]
     X_validation = mnist.validation.images[:N_CV]
     y_validation = mnist.validation.labels[:N_CV]
     X_test = mnist.test.images
     y_test = mnist.test.labels
     
     mms = MinMaxScaler()
-    X_train_s = mms.fit_transform(X_train)
-    X_validation_s = mms.transform(X_validation)
-    X_test_s = mms.transform(X_test)
+    X_train_unlab = mms.fit_transform(X_train_unlab)
+    X_train_lab = mms.transform(X_train_lab)
+    X_validation = mms.transform(X_validation)
+    X_test = mms.transform(X_test)
 
     rbm = BernoulliRBM(random_state=0, verbose=True)
     rbm.learning_rate = 0.03
-    rbm.n_iter = 30
+    rbm.n_iter = 10
     # More components tend to give better prediction performance, but larger
     # fitting time
-    rbm.n_components = 500
+    rbm.n_components = 1000
     print('\nRBM Training...')
-    rbm.fit(X_train_to_rbm)
-    X_train_rbmfitted = rbm.transform(X_train_s)
-    X_validation_rbmfitted = rbm.transform(X_validation_s)
-    X_test_rbmfitted = rbm.transform(X_test_s)
+    rbm.fit(X_train_unlab)      # train by unlabelled data
 
-    # check data shape
-    print('Shape of original X_train = ', X_train.shape)
-    print('Shape of X_train_rbmfitted = ', X_train_rbmfitted.shape)
+    X_train_rbmfitted = rbm.transform(X_train_lab)
+    X_validation_rbmfitted = rbm.transform(X_validation)
+    X_test_rbmfitted = rbm.transform(X_test)
 
     gbm = lgb.LGBMClassifier(
         objective='multiclass',
@@ -67,27 +66,16 @@ if __name__ == '__main__':
         learning_rate=0.01,
         n_estimators=1000)
 
-    gbm.fit(X_train_rbmfitted, y_train,
+    gbm.fit(X_train_rbmfitted, y_train_lab,         # train by labbelled data
         eval_set=[(X_validation_rbmfitted, y_validation)],
         eval_metric='multi_logloss',
         early_stopping_rounds=10)
     y_pred = gbm.predict(X_test_rbmfitted, num_iteration=gbm.best_iteration)
-    # y_pred_proba = gbm.predict_proba(X_test_s, num_iteration=gbm.best_iteration)
 
     accu = accuracy_score(y_test, y_pred)
     print('accuracy = {:>.4f}'.format(accu))
 
     # result 
-    #    condition: rbm.learning_rate = 0.06, rbm.n_iter = 10, rbm.n_components = 1800
-    # [996]	valid_0's multi_logloss:1.01218
-    # [997]	valid_0's multi_logloss:1.0116
-    # [998]	valid_0's multi_logloss:1.01103
-    # [999]	valid_0's multi_logloss:1.01046
-    # [1000]	valid_0's multi_logloss:1.00989
-    # accuracy = 0.8708
-
-    # result
-    # (LightGBM parameter is changed.)
-    # accuracy = 0.8993
-    
-    
+    # Early stopping, best iteration is:
+    # [791]	valid_0's multi_logloss: 0.340837
+    # accuracy = 0.9039
