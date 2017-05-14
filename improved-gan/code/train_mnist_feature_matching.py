@@ -1,38 +1,27 @@
 # -*- coding: utf-8 -*-
 #
 #   train_mnist_feature_matching.py
-#       date. 5/8/2017
+#       date. 5/8/2017, 5/15
 #
 #   (ref.)
 #   https://github.com/openai/improved-gan/tree/master/mnist_svhn_cifar10
 #
-'''
-Feature matchingは、Discriminatorにxとx~を入力した時のそれぞれの中間層出力の二乗誤差を
-小さくすることでGeneratorがより本物に近いデータを生成できるようにするテクニックです。
-実装する時は出力層に一番近い中間層出力（活性化関数を通した後の値）をマッチさせれば良いと思います。
-'''
 
 import numpy as np
 import tensorflow as tf
 from tensorflow.python.layers import layers
 
 from tensorflow.examples.tutorials.mnist import input_data
-mnist = input_data.read_data_sets("../data/", one_hot=True)
+from mnist_prep_ssl import load_data_ssl
 
+# MNIST dataset parameters for data loader
+def dataset_params():
+    params = {}
+    params['n_train_lab'] = 1000
+    params['n_val'] = 5000
+    params['n_train_unlab'] = 60000 - 1000 - 5000
 
-# basic constants
-total_epoch = 20
-batch_size = 100
-learning_rate = 0.0002
-# network related constants
-n_hidden = 500
-n_input = 28 * 28   # eq. 784
-n_noise = 100
-
-# TensorFlow placeholders
-X = tf.placeholder(tf.float32, [None, n_input])
-Z = tf.placeholder(tf.float32, [None, n_noise])
-
+    return dataset_params
 
 # Generator func. (G) 
 def generator(noise_z, reuse=False):
@@ -94,51 +83,95 @@ def inference(x_lab, x_unl, y_):
 
     # image generation
     x_generated = generator(some_noise)         # need to fix "some_noise"
-    py_x_g, feat_x_g = discriminator(x_generated)
+    py_x_g, feat_x_gen, _ = discriminator(x_generated)
+    features_to_match = (feat_x_lab, feat_x_gen)
     
-    return py_x_lab, feat_x_lab, py_x_unlab, py_x_g, feat_x_g
+    return py_x_lab, py_x_unlab, py_x_g, features_to_match
 
 
 def loss(py_x_lab, py_x_unlab, py_x_g, y_, feat_actual, feat_fake):
     # supervised loss
-    loss_lab = tf.losses.softmax_cross_entropy()
+    loss_lab = tf.losses.softmax_cross_entropy(y_, py_x_lab)
 
     # unsupervised loss
     log_zx_unl = tf.reduce_logsumexp(py_x_unl, axis=1)
     log_dx_unl = log_zx_unl - tf.nn.softplus(log_zx_unl)
-
-    loss_unlab = tf.reduced_mean(log_dx_unl)
+    loss_unlab = -1. * tf.reduced_mean(log_dx_unl)
 
     # adversarial loss
-
+    log_zx_g = tf.reduce_logsumexp(py_x_g, axis=1)
+    log_dx_g = log_zx_g - tf.nn.softplus(log_zx_g)
+    loss_advarsarial = -1. * tf.reduce_mean(log_dx_g)
 
     # feature matching
+    loss_fm = tf.losses.mean_squared_error(feat_actual, feat_fake)
+    loss_advarsarial += loss_fm    
 
-    return loss_tot
+    return loss_lab, loss_unlab, loss_adversarial
 
+def gen_fake_data():
+    n_input = 784
+    n_class = 10
+    fake1 = np.ones([10, n_input], dtype=np.float32) * 0.1
+    fake2 = np.ones([40, n_input], dtype=np.float32) * 0.1
+    fake3 = np.ones([10, n_class], dtype=np.float32) * 0.1
 
-
-
-def fm_loss(feat_actual, feat_fake):
-    '''
-      calculate feature matching loss
-        mom_gen = T.mean(LL.get_output(layers[-3], gen_dat), axis=0)
-        mom_real = T.mean(LL.get_output(layers[-3], x_unl), axis=0)
-        oss_gen = T.mean(T.square(mom_gen - mom_real))
-    '''
-
-    return tf.losses.mean_squared_error(feat_actual, feat_fake)
-
+    return fake1, fake2, fake3
 
 
 if __name__ == '__main__':
+    # basic constants
+    total_epoch = 20
+    batch_size = 100
+    learning_rate = 0.0002
+    # network related constants
+    n_hidden = 500
+    n_input = 28 * 28   # eq. 784
+    n_noise = 100
+    n_class = 10
+
+    # load data
+    # dataset_params = dataset_params()
+    # mnist = load_data_ssl(params, '../data')
+    fake1, fake2, fake3 = gen_fake_data()
 
     # tensorflow placeholders
     x_lab = tf.placeholder(tf.float32, [None, n_input])
     x_unl = tf.placeholder(tf.float32, [None, n_input])
-    y_ = tf.placeholder(tf.float32, [None, 10])
+    y_ = tf.placeholder(tf.float32, [None, n_class])
+
+    # Graph definition
+    py_x_lab, py_x_unlab, py_x_g, features_to_match = inference(x_lab, x_unl, y_)
+
+    sess = tf.InteractiveSession()
+    sess.run(tf.global_variables_initializer())
+    fd = {x_lab: fake1, x_unl: fake2, y_: fake3}
+
+    py_1_np, py_2_np, py_3_np = sess.run([py_x_lab, py_x_unlab, py_x_g], feed_dict=fd)
+    print('shape of py_1_np = ', py_1_np.shape)
+    print('shape of py_2_np = ', py_2_np.shape)
+    print('shape of py_3_np = ', py_3_np.shape)
 
 
+    assert False
+
+    '''
+    loss_D = tf.reduce_mean(tf.log(D_real) + tf.log(1 - D_gene))
+    loss_G = tf.reduce_mean(tf.log(D_gene))
+
+    # GAN training optimizer
+    train_D = tf.train.AdamOptimizer(learning_rate).minimize(-loss_D, var_list=D_var_list)
+    train_G = tf.train.AdamOptimizer(learning_rate).minimize(-loss_G, var_list=G_var_list)
+
+
+    sess = tf.Session()
+    sess.run(tf.global_variables_initializer())
+
+    total_batch = int(mnist.train.num_examples/batch_size)
+    loss_val_D, loss_val_G = 0, 0
+
+    print('Training ...')
+    '''
 
 '''
   on-going ...
