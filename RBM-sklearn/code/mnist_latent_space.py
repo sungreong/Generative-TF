@@ -1,6 +1,8 @@
 #
 #   mnist_latent_space.py
-#       date. 4/18/2017
+#       date. 5/11/2017
+#
+#   (ref.) http://scikit-learn.org/stable/auto_examples/neural_networks/plot_rbm_logistic_classification.html
 #
 
 import os
@@ -17,12 +19,27 @@ from sklearn.metrics import accuracy_score
 from tensorflow.examples.tutorials.mnist import input_data
 
 
-def load_data(path_from_home='Sources/Python.d/TensorFlow/MNIST_data'):
-    home_dir = os.environ.get('HOME')
-    mnist_dir = os.path.join(home_dir, path_from_home)
+def load_data(mnist_dir='../data'):
     mnist = input_data.read_data_sets(mnist_dir, one_hot=False)
 
     return mnist
+
+
+def kernel_plot(rbm):
+    plt.figure(figsize=(12, 10))
+    n_plot = 100
+
+    for i, comp in enumerate(rbm.components_[:n_plot, :]):
+        plt.subplot(10, 10, i + 1)
+        plt.imshow(comp.reshape((28, 28)), cmap=plt.cm.gray_r,
+               interpolation='nearest')
+        plt.xticks(())
+        plt.yticks(())
+    plt.suptitle('100 components extracted by RBM', fontsize=16)
+    plt.subplots_adjust(0.08, 0.02, 0.85, 0.85, 0.05, 0.05)
+
+    plt.savefig('../work/mnist_kernel.png')
+
 
 if __name__ == '__main__':
     
@@ -43,28 +60,9 @@ if __name__ == '__main__':
     rbm = BernoulliRBM(random_state=0, verbose=True)
     rbm.learning_rate = 0.03
     rbm.n_iter = 30
-    rbm.n_components = 2
+    rbm.n_components = 500
 
     print('\nRBM Training...')
     rbm.fit(X_train_s)
-    X_train_rbmfitted = rbm.transform(X_train_s)
-    # X_validation_rbmfitted = rbm.transform(X_validation_s)
-    X_test_rbmfitted = rbm.transform(X_test_s)
 
-    print('x_test_rbmfitted = \n')
-    print(X_test_rbmfitted[:20,:])
-
-    assert False
-
-    # check data shape
-    # print('Shape of original X_train = ', X_train.shape)
-    # print('Shape of X_train_rbmfitted = ', X_train_rbmfitted.shape)
-
-    # plot latent space
-    plt.figure(figsize=(8, 6))
-    plt.scatter(X_test_rbmfitted[:, 0], X_test_rbmfitted[:, 1], c=y_test)
-    plt.colorbar()
-    # plt.show()
-    plt.savefig('mnist_map.png')
-    plt.close()
-    
+    kernel_plot(rbm)
