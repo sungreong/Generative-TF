@@ -39,11 +39,10 @@ def generator(noise_z, reuse=False):
     return generator_out, vars_g
 
 # Discriminator func. (D)
-def gaussian_noise_layer(input_layer, sigma=0.1):
-    noise = tf.random_normal(shape=tf.shape(input_layer), 
+def gaussian_noise_layer(inputs, sigma=0.1):
+    noise = tf.random_normal(shape=tf.shape(inputs), 
                              mean=0.0, stddev=sigma, dtype=tf.float32)
-    return input_layer + noise
-
+    return inputs + noise
 
 def discriminator(inputs, reuse=False):
     num_units = [None, 1000, 500, 250, 250, 250, 10]
@@ -74,38 +73,54 @@ def discriminator(inputs, reuse=False):
     return discriminator_out, mom_out, vars_d
 
 
-def inference(x_lab, x_unl, y_):
+# Noise generator
+def get_noise(batch_size):
+    return np.random.normal(size=(batch_size, n_noise))
+
+
+def inference(x_lab, x_unl, y_, z):
+    '''
+      do infernce by network model
+      args.:
+        x_lab:  labelled X data
+        x_unl:  unlabelled X data
+        y_:     label Y data
+        z:      noise for generator
+    '''
     # labelled data
     py_x_lab, feat_x_lab, _ = discriminator(x_lab)
 
     # unlabelled data
-    py_x_unl, _, _ = discriminator(x_unl)
+    py_x_unl, _, _ = discriminator(x_unl, reuse=True)
 
     # image generation
-    x_generated = generator(some_noise)         # need to fix "some_noise"
-    py_x_g, feat_x_gen, _ = discriminator(x_generated)
+    x_generated, _ = generator(z)
+    py_x_g, feat_x_gen, _ = discriminator(x_generated, reuse=True)
     features_to_match = (feat_x_lab, feat_x_gen)
     
-    return py_x_lab, py_x_unlab, py_x_g, features_to_match
+    return py_x_lab, py_x_unl, py_x_g, features_to_match
 
 
-def loss(py_x_lab, py_x_unlab, py_x_g, y_, feat_actual, feat_fake):
+def loss(py_x_lab, py_x_unlab, py_x_g, y_, features_to_match):
+    # unpack features
+    feat_actual, feat_fake = features_to_match
+
     # supervised loss
     loss_lab = tf.losses.softmax_cross_entropy(y_, py_x_lab)
 
     # unsupervised loss
-    log_zx_unl = tf.reduce_logsumexp(py_x_unl, axis=1)
+    log_zx_unl = tf.reduce_logsumexp(py_x_unlab, axis=1)
     log_dx_unl = log_zx_unl - tf.nn.softplus(log_zx_unl)
-    loss_unlab = -1. * tf.reduced_mean(log_dx_unl)
+    loss_unlab = -1. * tf.reduce_mean(log_dx_unl)
 
     # adversarial loss
     log_zx_g = tf.reduce_logsumexp(py_x_g, axis=1)
     log_dx_g = log_zx_g - tf.nn.softplus(log_zx_g)
-    loss_advarsarial = -1. * tf.reduce_mean(log_dx_g)
+    loss_adversarial = -1. * tf.reduce_mean(log_dx_g)
 
     # feature matching
     loss_fm = tf.losses.mean_squared_error(feat_actual, feat_fake)
-    loss_advarsarial += loss_fm    
+    loss_adversarial += loss_fm    
 
     return loss_lab, loss_unlab, loss_adversarial
 
@@ -134,23 +149,27 @@ if __name__ == '__main__':
     # dataset_params = dataset_params()
     # mnist = load_data_ssl(params, '../data')
     fake1, fake2, fake3 = gen_fake_data()
+    noise_z = get_noise(10)
 
     # tensorflow placeholders
     x_lab = tf.placeholder(tf.float32, [None, n_input])
     x_unl = tf.placeholder(tf.float32, [None, n_input])
     y_ = tf.placeholder(tf.float32, [None, n_class])
+    z = tf.placeholder(tf.float32, [None, n_noise])
 
     # Graph definition
-    py_x_lab, py_x_unlab, py_x_g, features_to_match = inference(x_lab, x_unl, y_)
+    py_x_lab, py_x_unlab, py_x_g, features_to_match = inference(x_lab, x_unl, y_, z)
+    loss1, loss2, loss3 = loss(py_x_lab, py_x_unlab, py_x_g, y_, features_to_match)
 
     sess = tf.InteractiveSession()
     sess.run(tf.global_variables_initializer())
-    fd = {x_lab: fake1, x_unl: fake2, y_: fake3}
 
-    py_1_np, py_2_np, py_3_np = sess.run([py_x_lab, py_x_unlab, py_x_g], feed_dict=fd)
-    print('shape of py_1_np = ', py_1_np.shape)
-    print('shape of py_2_np = ', py_2_np.shape)
-    print('shape of py_3_np = ', py_3_np.shape)
+    fd = {x_lab: fake1, x_unl: fake2, y_: fake3, z: noise_z}
+
+    loss1_np, loss2_np, loss3_np = sess.run([loss1, loss2, loss3], feed_dict=fd)
+    print('loss1_np = ', loss1_np)
+    print('loss2_np = ', loss2_np)
+    print('loss3_np = ', loss3_np)
 
 
     assert False
