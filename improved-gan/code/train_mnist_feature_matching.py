@@ -20,8 +20,9 @@ def dataset_params():
     params['n_train_lab'] = 1000
     params['n_val'] = 5000
     params['n_train_unlab'] = 60000 - 1000 - 5000
+    params['mode'] = 'random'
 
-    return dataset_params
+    return params
 
 # Generator func. (G) 
 def generator(noise_z, reuse=False):
@@ -88,17 +89,17 @@ def inference(x_lab, x_unl, y_, z):
         z:      noise for generator
     '''
     # labelled data
-    py_x_lab, feat_x_lab, _ = discriminator(x_lab)
+    py_x_lab, feat_x_lab, vars_d = discriminator(x_lab)
 
     # unlabelled data
     py_x_unl, _, _ = discriminator(x_unl, reuse=True)
 
     # image generation
-    x_generated, _ = generator(z)
+    x_generated, vars_g = generator(z)
     py_x_g, feat_x_gen, _ = discriminator(x_generated, reuse=True)
     features_to_match = (feat_x_lab, feat_x_gen)
     
-    return py_x_lab, py_x_unl, py_x_g, features_to_match
+    return py_x_lab, py_x_unl, py_x_g, features_to_match, vars_d, vars_g
 
 
 def loss(py_x_lab, py_x_unlab, py_x_g, y_, features_to_match):
@@ -124,6 +125,12 @@ def loss(py_x_lab, py_x_unlab, py_x_g, y_, features_to_match):
 
     return loss_lab, loss_unlab, loss_adversarial
 
+def evaluate(y_, y_pred):
+    correct_prediction = tf.equal(tf.argmax(y_pred,1), tf.argmax(y_,1))
+    accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+
+    return accuracy
+
 def gen_fake_data():
     n_input = 784
     n_class = 10
@@ -136,7 +143,7 @@ def gen_fake_data():
 
 if __name__ == '__main__':
     # basic constants
-    total_epoch = 20
+    total_epochs = 30
     batch_size = 100
     learning_rate = 0.0002
     # network related constants
@@ -146,10 +153,9 @@ if __name__ == '__main__':
     n_class = 10
 
     # load data
-    # dataset_params = dataset_params()
-    # mnist = load_data_ssl(params, '../data')
-    fake1, fake2, fake3 = gen_fake_data()
-    noise_z = get_noise(10)
+    dataset_params = dataset_params()
+    mnist = load_data_ssl(dataset_params, '../data')
+    # fake1, fake2, fake3 = gen_fake_data()
 
     # tensorflow placeholders
     x_lab = tf.placeholder(tf.float32, [None, n_input])
@@ -158,40 +164,53 @@ if __name__ == '__main__':
     z = tf.placeholder(tf.float32, [None, n_noise])
 
     # Graph definition
-    py_x_lab, py_x_unlab, py_x_g, features_to_match = inference(x_lab, x_unl, y_, z)
-    loss1, loss2, loss3 = loss(py_x_lab, py_x_unlab, py_x_g, y_, features_to_match)
+    py_x_lab, py_x_unlab, py_x_g, features_to_match, vars_d, vars_g = \
+                                        inference(x_lab, x_unl, y_, z)
+    loss_D1, loss_D2, loss_G = loss(py_x_lab, py_x_unlab, py_x_g, y_, 
+                                    features_to_match)
+    loss_D = loss_D1 + loss_D2
+    accuracy = evaluate(y_, py_x_lab)
 
-    sess = tf.InteractiveSession()
-    sess.run(tf.global_variables_initializer())
+    opti1 = tf.train.AdamOptimizer(learning_rate)
+    train_op_D = opti1.minimize(loss_D, var_list=vars_d)
+    opti2 = tf.train.AdamOptimizer(learning_rate)
+    train_op_G = opti2.minimize(loss_G, var_list=vars_g)
 
-    fd = {x_lab: fake1, x_unl: fake2, y_: fake3, z: noise_z}
+    init = tf.global_variables_initializer()
+    n_samples = mnist.train_unlab.num_examples
 
-    loss1_np, loss2_np, loss3_np = sess.run([loss1, loss2, loss3], feed_dict=fd)
-    print('loss1_np = ', loss1_np)
-    print('loss2_np = ', loss2_np)
-    print('loss3_np = ', loss3_np)
+    with tf.Session() as sess:
+        sess.run(init)
+        print('Training ...')
 
+        for epoch in range(total_epochs):
+            avg_cost = 0.
+            total_batch = int(n_samples / batch_size)
+            # Loop over all batches
+            for i in range(total_batch):
+                batch_xu, _ = mnist.train_unlab.next_batch(batch_size)
+                batch_xl, batch_yl = mnist.train_lab.next_batch(batch_size)
+                noise_z = get_noise(batch_size)
 
-    assert False
+                train_fd = {x_lab: batch_xl, x_unl: batch_xu, 
+                            y_: batch_yl, z: noise_z}
+                _, loss_D_np = sess.run([train_op_D, loss_D],
+                                        feed_dict=train_fd)
+                _, loss_G_np = sess.run([train_op_G, loss_G],
+                                        feed_dict=train_fd)
 
-    '''
-    loss_D = tf.reduce_mean(tf.log(D_real) + tf.log(1 - D_gene))
-    loss_G = tf.reduce_mean(tf.log(D_gene))
+                if i % 100 == 0:
+                    print('epoch / i={:5d}/{:5d}, loss_D = {:>10.4f},'
+                          '   loss_G = {:>10.4f}'.format(
+                          epoch, i, loss_D_np, loss_G_np))
+            # validation
+            batch_xv, batch_yv = mnist.validation.next_batch(batch_size)
+            noise_z = get_noise(batch_size)
+            val_fd = {x_lab: batch_xv, x_unl: batch_xu,
+                      y_: batch_yv, z: noise_z}
+            loss_val_np = sess.run(loss_D, feed_dict=val_fd)
+            accu_val_np = sess.run(accuracy, feed_dict=val_fd)
 
-    # GAN training optimizer
-    train_D = tf.train.AdamOptimizer(learning_rate).minimize(-loss_D, var_list=D_var_list)
-    train_G = tf.train.AdamOptimizer(learning_rate).minimize(-loss_G, var_list=G_var_list)
-
-
-    sess = tf.Session()
-    sess.run(tf.global_variables_initializer())
-
-    total_batch = int(mnist.train.num_examples/batch_size)
-    loss_val_D, loss_val_G = 0, 0
-
-    print('Training ...')
-    '''
-
-'''
-  on-going ...
-'''
+            print('epoch = {:5d}, validation loss = {:>10.4f}, '
+                  '  accuracy = {:>10.4f}\n'.format(
+                  epoch, loss_val_np, accu_val_np))
