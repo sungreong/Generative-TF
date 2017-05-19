@@ -14,14 +14,11 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import accuracy_score
 from tensorflow.examples.tutorials.mnist import input_data
 
-
 N_LABEL = 1000
 N_UNLAB = 50000
 N_CV = 1000
 
-def load_data(path_from_home='Sources/Python.d/TensorFlow/MNIST_data'):
-    home_dir = os.environ.get('HOME')
-    mnist_dir = os.path.join(home_dir, path_from_home)
+def load_data(mnist_dir='../data'):
     mnist = input_data.read_data_sets(mnist_dir, one_hot=False)
 
     return mnist
@@ -41,18 +38,12 @@ if __name__ == '__main__':
     X_test = mnist.test.images
     y_test = mnist.test.labels
     
-    mms = MinMaxScaler()
-    X_train_unlab = mms.fit_transform(X_train_unlab)
-    X_train_lab = mms.transform(X_train_lab)
-    X_validation = mms.transform(X_validation)
-    X_test = mms.transform(X_test)
-
     rbm = BernoulliRBM(random_state=0, verbose=True)
     rbm.learning_rate = 0.03
     rbm.n_iter = 10
     # More components tend to give better prediction performance, but larger
     # fitting time
-    rbm.n_components = 1000
+    rbm.n_components = 500
     print('\nRBM Training...')
     rbm.fit(X_train_unlab)      # train by unlabelled data
 
