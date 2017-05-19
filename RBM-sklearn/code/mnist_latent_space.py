@@ -1,12 +1,12 @@
 #
 #   mnist_latent_space.py
-#       date. 5/11/2017
+#       date. 5/11/2017, 5/19
 #
 #   (ref.) http://scikit-learn.org/stable/auto_examples/neural_networks/plot_rbm_logistic_classification.html
 #
 
 import os
-
+import pickle
 import numpy as np
 import pandas as pd
 import matplotlib as mpl
@@ -17,6 +17,8 @@ from sklearn.neural_network import BernoulliRBM
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import accuracy_score
 from tensorflow.examples.tutorials.mnist import input_data
+
+MNIST_RBM_MODEL = '../work/mnist_rbm.pkl'
 
 
 def load_data(mnist_dir='../data'):
@@ -59,10 +61,18 @@ if __name__ == '__main__':
 
     rbm = BernoulliRBM(random_state=0, verbose=True)
     rbm.learning_rate = 0.03
-    rbm.n_iter = 30
+    rbm.n_iter = 3
     rbm.n_components = 500
 
     print('\nRBM Training...')
     rbm.fit(X_train_s)
+
+    if os.path.exists(MNIST_RBM_MODEL):
+        pass
+    else:
+        with open(MNIST_RBM_MODEL, 'wb') as fw:
+            pickled = pickle.dumps(rbm.get_params())
+            fw.write(pickled)
+        print('data is saved.')
 
     kernel_plot(rbm)
