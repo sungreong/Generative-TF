@@ -143,7 +143,7 @@ def gen_fake_data():
 
 if __name__ == '__main__':
     # basic constants
-    total_epochs = 30
+    total_epochs = 200
     batch_size = 100
     learning_rate = 0.0002
     # network related constants
@@ -190,19 +190,22 @@ if __name__ == '__main__':
             for i in range(total_batch):
                 batch_xu, _ = mnist.train_unlab.next_batch(batch_size)
                 batch_xl, batch_yl = mnist.train_lab.next_batch(batch_size)
-                noise_z = get_noise(batch_size)
-
-                train_fd = {x_lab: batch_xl, x_unl: batch_xu, 
-                            y_: batch_yl, z: noise_z}
+                # noise_z = get_noise(batch_size)
+                train_fd_D = {x_lab: batch_xl, x_unl: batch_xu, 
+                            y_: batch_yl}
                 _, loss_D_np = sess.run([train_op_D, loss_D],
-                                        feed_dict=train_fd)
+                                        feed_dict=train_fd_D)
+                batch_xu, _ = mnist.train_unlab.next_batch(batch_size)
+                batch_xl, batch_yl = mnist.train_lab.next_batch(batch_size)
+                noise_z = get_noise(batch_size)
+                train_fd_G = {x_lab: batch_xl, y_: batch_yl,
+                              x_unl: batch_xu, z: noise_z}
                 _, loss_G_np = sess.run([train_op_G, loss_G],
-                                        feed_dict=train_fd)
+                                        feed_dict=train_fd_G)
 
-                if i % 100 == 0:
-                    print('epoch / i={:5d}/{:5d}, loss_D = {:>10.4f},'
+            print('epoch ={:5d}, training loss_D = {:>10.4f}, '
                           '   loss_G = {:>10.4f}'.format(
-                          epoch, i, loss_D_np, loss_G_np))
+                          epoch, loss_D_np, loss_G_np))
             # validation
             batch_xv, batch_yv = mnist.validation.next_batch(batch_size)
             noise_z = get_noise(batch_size)
@@ -211,6 +214,6 @@ if __name__ == '__main__':
             loss_val_np = sess.run(loss_D, feed_dict=val_fd)
             accu_val_np = sess.run(accuracy, feed_dict=val_fd)
 
-            print('epoch = {:5d}, validation loss = {:>10.4f}, '
+            print('epoch ={:5d}, validation loss = {:>10.4f}, '
                   '  accuracy = {:>10.4f}\n'.format(
                   epoch, loss_val_np, accu_val_np))
