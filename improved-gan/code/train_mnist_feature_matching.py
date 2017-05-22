@@ -100,7 +100,7 @@ def inference(x_lab, x_unl, y_, z):
 
     logits = (py_x_lab, py_x_unl, py_x_g)
     features_to_match = (feat_x_lab, feat_x_gen)
-    vars_ = (vars_d, vars_d)
+    vars_ = (vars_d, vars_g)
     
     return logits, features_to_match, vars_
 
@@ -109,7 +109,7 @@ def loss(logits, y_, features_to_match):
     # unpack logits, features
     py_x_lab, py_x_unlab, py_x_g = logits
     feat_actual, feat_fake = features_to_match
-    with tf.name_scope('losses'):
+    with tf.name_scope('loss'):
         # supervised loss
         loss_lab = tf.losses.softmax_cross_entropy(y_, py_x_lab)
 
@@ -118,7 +118,7 @@ def loss(logits, y_, features_to_match):
         log_dx_unl = log_zx_unl - tf.nn.softplus(log_zx_unl)
         loss_unlab = -1. * tf.reduce_mean(log_dx_unl)
 
-        loss_discr = loss_lab, loss_unlab
+        loss_discr = loss_lab + loss_unlab
         tf.summary.scalar('loss_D', loss_discr)
 
         # adversarial loss
@@ -137,7 +137,7 @@ def evaluate(y_, y_pred):
     with tf.name_scope('accuracy'):
         correct_prediction = tf.equal(tf.argmax(y_pred,1), tf.argmax(y_,1))
         accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
-    tf.summary.scalar('accuracy', accuracy)
+    tf.summary.scalar('accuracy_bat', accuracy)
 
     return accuracy
 
@@ -155,6 +155,7 @@ if __name__ == '__main__':
     # basic constants
     total_epochs = 200
     batch_size = 100
+    batch_size_val = 500
     learning_rate = 0.0002
     # network related constants
     n_hidden = 500
@@ -176,7 +177,7 @@ if __name__ == '__main__':
     # Graph definition
     logits, features_to_match, vars_ = inference(x_lab, x_unl, y_, z)
     loss_D, loss_G = loss(logits, y_, features_to_match)
-    accuracy = evaluate(y_, py_x_lab)
+    accuracy = evaluate(y_, logits[0])
 
     opti1 = tf.train.AdamOptimizer(learning_rate)
     train_op_D = opti1.minimize(loss_D, var_list=vars_[0])
@@ -216,18 +217,18 @@ if __name__ == '__main__':
                                         feed_dict=train_fd_G)
             summary = sess.run(merged, feed_dict=train_fd_G)
             print('epoch ={:5d}, training loss_D = {:>10.4f}, '
-                  '   loss_G = {:>10.4f}'.format(
+                  '  loss_G(w/fm) = {:>10.4f}'.format(
                   epoch, loss_D_np, loss_G_np))
             train_writer.add_summary(summary, epoch)
 
             # validation
-            batch_xv, batch_yv = mnist.validation.next_batch(batch_size)
+            batch_xv, batch_yv = mnist.validation.next_batch(batch_size_val)
             noise_z = get_noise(batch_size)
             val_fd = {x_lab: batch_xv, x_unl: batch_xu,
                       y_: batch_yv, z: noise_z}
             summary, loss_val_np, accu_val_np = sess.run(
                             [merged, loss_D, accuracy], feed_dict=val_fd)
             print('epoch ={:5d}, validation loss = {:>10.4f}, '
-                  '  accuracy = {:>10.4f}\n'.format(
+                  '  accuracy = {:>10.4f}'.format(
                   epoch, loss_val_np, accu_val_np))
-            test_writer.add_summary(summry, epoch)
+            test_writer.add_summary(summary, epoch)
