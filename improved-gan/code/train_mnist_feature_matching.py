@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 #   train_mnist_feature_matching.py
-#       date. 5/8/2017, 5/15
+#       date. 5/8/2017, 5/23
 #
 #   (ref.)
 #   https://github.com/openai/improved-gan/tree/master/mnist_svhn_cifar10
@@ -97,37 +97,47 @@ def inference(x_lab, x_unl, y_, z):
     # image generation
     x_generated, vars_g = generator(z)
     py_x_g, feat_x_gen, _ = discriminator(x_generated, reuse=True)
+
+    logits = (py_x_lab, py_x_unl, py_x_g)
     features_to_match = (feat_x_lab, feat_x_gen)
+    vars_ = (vars_d, vars_d)
     
-    return py_x_lab, py_x_unl, py_x_g, features_to_match, vars_d, vars_g
+    return logits, features_to_match, vars_
 
 
-def loss(py_x_lab, py_x_unlab, py_x_g, y_, features_to_match):
-    # unpack features
+def loss(logits, y_, features_to_match):
+    # unpack logits, features
+    py_x_lab, py_x_unlab, py_x_g = logits
     feat_actual, feat_fake = features_to_match
+    with tf.name_scope('losses'):
+        # supervised loss
+        loss_lab = tf.losses.softmax_cross_entropy(y_, py_x_lab)
 
-    # supervised loss
-    loss_lab = tf.losses.softmax_cross_entropy(y_, py_x_lab)
+        # unsupervised loss
+        log_zx_unl = tf.reduce_logsumexp(py_x_unlab, axis=1)
+        log_dx_unl = log_zx_unl - tf.nn.softplus(log_zx_unl)
+        loss_unlab = -1. * tf.reduce_mean(log_dx_unl)
 
-    # unsupervised loss
-    log_zx_unl = tf.reduce_logsumexp(py_x_unlab, axis=1)
-    log_dx_unl = log_zx_unl - tf.nn.softplus(log_zx_unl)
-    loss_unlab = -1. * tf.reduce_mean(log_dx_unl)
+        loss_discr = loss_lab, loss_unlab
+        tf.summary.scalar('loss_D', loss_discr)
 
-    # adversarial loss
-    log_zx_g = tf.reduce_logsumexp(py_x_g, axis=1)
-    log_dx_g = log_zx_g - tf.nn.softplus(log_zx_g)
-    loss_adversarial = -1. * tf.reduce_mean(log_dx_g)
+        # adversarial loss
+        log_zx_g = tf.reduce_logsumexp(py_x_g, axis=1)
+        log_dx_g = log_zx_g - tf.nn.softplus(log_zx_g)
+        loss_adversarial = -1. * tf.reduce_mean(log_dx_g)
+        tf.summary.scalar('loss_G', loss_adversarial)
 
-    # feature matching
-    loss_fm = tf.losses.mean_squared_error(feat_actual, feat_fake)
-    loss_adversarial += loss_fm    
+        # feature matching
+        loss_fm = tf.losses.mean_squared_error(feat_actual, feat_fake)
+        loss_adversarial += loss_fm
 
-    return loss_lab, loss_unlab, loss_adversarial
+    return loss_discr, loss_adversarial
 
 def evaluate(y_, y_pred):
-    correct_prediction = tf.equal(tf.argmax(y_pred,1), tf.argmax(y_,1))
-    accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+    with tf.name_scope('accuracy'):
+        correct_prediction = tf.equal(tf.argmax(y_pred,1), tf.argmax(y_,1))
+        accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+    tf.summary.scalar('accuracy', accuracy)
 
     return accuracy
 
@@ -164,22 +174,24 @@ if __name__ == '__main__':
     z = tf.placeholder(tf.float32, [None, n_noise])
 
     # Graph definition
-    py_x_lab, py_x_unlab, py_x_g, features_to_match, vars_d, vars_g = \
-                                        inference(x_lab, x_unl, y_, z)
-    loss_D1, loss_D2, loss_G = loss(py_x_lab, py_x_unlab, py_x_g, y_, 
-                                    features_to_match)
-    loss_D = loss_D1 + loss_D2
+    logits, features_to_match, vars_ = inference(x_lab, x_unl, y_, z)
+    loss_D, loss_G = loss(logits, y_, features_to_match)
     accuracy = evaluate(y_, py_x_lab)
 
     opti1 = tf.train.AdamOptimizer(learning_rate)
-    train_op_D = opti1.minimize(loss_D, var_list=vars_d)
+    train_op_D = opti1.minimize(loss_D, var_list=vars_[0])
     opti2 = tf.train.AdamOptimizer(learning_rate)
-    train_op_G = opti2.minimize(loss_G, var_list=vars_g)
+    train_op_G = opti2.minimize(loss_G, var_list=vars_[1])
 
+    merged = tf.summary.merge_all()
+    summaries_dir = '/tmp/tflogs'
     init = tf.global_variables_initializer()
     n_samples = mnist.train_unlab.num_examples
 
     with tf.Session() as sess:
+        train_writer = tf.summary.FileWriter(summaries_dir + '/train',
+                                      sess.graph)
+        test_writer = tf.summary.FileWriter(summaries_dir + '/test')
         sess.run(init)
         print('Training ...')
 
@@ -202,18 +214,20 @@ if __name__ == '__main__':
                               x_unl: batch_xu, z: noise_z}
                 _, loss_G_np = sess.run([train_op_G, loss_G],
                                         feed_dict=train_fd_G)
-
+            summary = sess.run(merged, feed_dict=train_fd_G)
             print('epoch ={:5d}, training loss_D = {:>10.4f}, '
-                          '   loss_G = {:>10.4f}'.format(
-                          epoch, loss_D_np, loss_G_np))
+                  '   loss_G = {:>10.4f}'.format(
+                  epoch, loss_D_np, loss_G_np))
+            train_writer.add_summary(summary, epoch)
+
             # validation
             batch_xv, batch_yv = mnist.validation.next_batch(batch_size)
             noise_z = get_noise(batch_size)
             val_fd = {x_lab: batch_xv, x_unl: batch_xu,
                       y_: batch_yv, z: noise_z}
-            loss_val_np = sess.run(loss_D, feed_dict=val_fd)
-            accu_val_np = sess.run(accuracy, feed_dict=val_fd)
-
+            summary, loss_val_np, accu_val_np = sess.run(
+                            [merged, loss_D, accuracy], feed_dict=val_fd)
             print('epoch ={:5d}, validation loss = {:>10.4f}, '
                   '  accuracy = {:>10.4f}\n'.format(
                   epoch, loss_val_np, accu_val_np))
+            test_writer.add_summary(summry, epoch)
