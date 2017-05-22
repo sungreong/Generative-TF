@@ -153,10 +153,10 @@ def gen_fake_data():
 
 if __name__ == '__main__':
     # basic constants
-    total_epochs = 200
+    total_epochs = 100
     batch_size = 100
     batch_size_val = 500
-    learning_rate = 0.0002
+    learning_rate = 0.0003
     # network related constants
     n_hidden = 500
     n_input = 28 * 28   # eq. 784
