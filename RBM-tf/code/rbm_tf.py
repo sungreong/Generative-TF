@@ -250,7 +250,7 @@ class RBM(object):
         return reconstruction_cost
 
 
-def plot_filters(sess, rbm, epoch, dirn='../work/rbm_imgs'):
+def plot_filters(sess, rbm, epoch, dirn='../work'):
     w_T = np.transpose(sess.run(rbm.W))
     image = Image.fromarray(
             tile_raster_images(
