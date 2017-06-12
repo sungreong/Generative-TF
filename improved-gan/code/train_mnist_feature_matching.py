@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 #   train_mnist_feature_matching.py
-#       date. 5/8/2017, 5/23
+#       date. 5/8/2017, 6/12
 #
 #   (ref.)
 #   https://github.com/openai/improved-gan/tree/master/mnist_svhn_cifar10
@@ -75,7 +75,7 @@ def discriminator(inputs, reuse=False):
 
 
 # Noise generator
-def get_noise(batch_size):
+def get_noise(batch_size, n_noise):
     return np.random.normal(size=(batch_size, n_noise))
 
 
@@ -203,14 +203,14 @@ if __name__ == '__main__':
             for i in range(total_batch):
                 batch_xu, _ = mnist.train_unlab.next_batch(batch_size)
                 batch_xl, batch_yl = mnist.train_lab.next_batch(batch_size)
-                # noise_z = get_noise(batch_size)
+                
                 train_fd_D = {x_lab: batch_xl, x_unl: batch_xu, 
                             y_: batch_yl}
                 _, loss_D_np = sess.run([train_op_D, loss_D],
                                         feed_dict=train_fd_D)
                 batch_xu, _ = mnist.train_unlab.next_batch(batch_size)
                 batch_xl, batch_yl = mnist.train_lab.next_batch(batch_size)
-                noise_z = get_noise(batch_size)
+                noise_z = get_noise(batch_size, n_noise)
                 train_fd_G = {x_lab: batch_xl, y_: batch_yl,
                               x_unl: batch_xu, z: noise_z}
                 _, loss_G_np = sess.run([train_op_G, loss_G],
@@ -223,7 +223,7 @@ if __name__ == '__main__':
 
             # validation
             batch_xv, batch_yv = mnist.validation.next_batch(batch_size_val)
-            noise_z = get_noise(batch_size)
+            noise_z = get_noise(batch_size, n_noise)
             val_fd = {x_lab: batch_xv, x_unl: batch_xu,
                       y_: batch_yv, z: noise_z}
             summary, loss_val_np, accu_val_np = sess.run(
