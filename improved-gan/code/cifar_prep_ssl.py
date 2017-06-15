@@ -4,6 +4,8 @@
 #       prepare CIFAR-10 dataset for semi-supervised leaning
 #
 
+import os
+import pickle
 import collections
 import numpy as np
 from tensorflow.contrib.learn.python.learn.datasets.mnist import DataSet
@@ -11,6 +13,8 @@ from tensorflow.contrib.learn.python.learn.datasets.mnist import DataSet
 Datasets4 = collections.namedtuple('Datasets4', 
                                    ['train_lab', 'train_unlab', 
                                     'validation', 'test'])
+NUM_CLASSES = 10
+
 def params():
     '''
       set parameter to allocate data samples
@@ -92,12 +96,17 @@ def load_data_ssl(params, dirn='../data'):
     y_test = onehot_label(y_test0)
 
     # step.1 - split validation set
+    n_train = y_train.shape[0] - n_val
     X_train_tot, X_validation, y_train_tot, y_validation = \
-        random_sampling(X_train, y_train, n_labeled=n_val)
-    n_train_total = X_train_tot.shape[0]
+        random_sampling(X_train, y_train, n_labeled=n_train)
+    n_train_total = y_train_tot.shape[0]
 
     # step.2 - split train set into labeled / unlabeled
     if (n_train_lab + n_train_unlab) > n_train_total:
+        print('data splitting condition :')
+        print('\tn_train_lab   = ', n_train_lab)
+        print('\tn_train_unlab = ', n_train_unlab)
+        print('\tn_train_total = ', n_train_total)
         raise ValueError('inconsistent parameters')
 
     # select bin_sampling or random_sampling (including inbalance)
@@ -107,8 +116,14 @@ def load_data_ssl(params, dirn='../data'):
     else:
         X_train_lab, X_train_unlab, y_train_lab, y_train_unlab = \
             bin_sampling(X_train_tot, y_train_tot, n_labeled=n_train_lab)
+    
+    # matrix transpose (channel 1st -> channel last)
+    X_train_lab = np.transpose(X_train_lab, (0, 2, 3, 1))
+    X_train_unlab = np.transpose(X_train_unlab, (0, 2, 3, 1))
+    X_validation = np.transpose(X_validation, (0, 2, 3, 1))
+    X_test = np.transpose(X_test, (0, 2, 3, 1))
 
-    # cancel scaling by DataSet class constructor
+    # DataSet class construction
     train_lab = DataSet(X_train_lab, y_train_lab, reshape=False)
     train_unlab = DataSet(X_train_unlab, y_train_unlab, reshape=False)
     validation_set = DataSet(X_validation, y_validation, reshape=False)
@@ -116,8 +131,8 @@ def load_data_ssl(params, dirn='../data'):
 
     cifar10_ssl = Datasets4(train_lab=train_lab, 
                           train_unlab=train_unlab,
-                          validation=mnist.validation,
-                          test=mnist.test)
+                          validation=validation_set,
+                          test=test_set)
     return cifar10_ssl
 
 
@@ -232,7 +247,7 @@ def test_load_data_ssl(dirn):
     print('shape of batch_y = ', batch_y.shape)
     print('shape of batch_x(unlabelled) = ', batch_x_unlab.shape)
     print('shape of batch_xv = ', batch_xv.shape)
-    print('shape of batch_yb = ', batch_yv.shape)
+    print('shape of batch_yv = ', batch_yv.shape)
 
 
 if __name__ == '__main__':
