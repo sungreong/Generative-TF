@@ -1,11 +1,11 @@
 #
 #   cifar_prep_ssl.py
-#       6/11/2017
-#       prepare mnist dataset for semi-supervised leaning
+#       6/15/2017
+#       prepare CIFAR-10 dataset for semi-supervised leaning
 #
+
 import collections
 import numpy as np
-from tensorflow.examples.tutorials.mnist import input_data
 from tensorflow.contrib.learn.python.learn.datasets.mnist import DataSet
 
 Datasets4 = collections.namedtuple('Datasets4', 
@@ -18,50 +18,107 @@ def params():
     params = {}
     params['n_train_lab'] = 100
     params['n_val'] = 10000
-    params['n_train_unlab'] = 60000 - 100 - 10000
+    params['n_train_unlab'] = 50000 - 100 - 10000   # total sample 50000
     params['mode'] = None
 
     return params
 
 
+def unpickle(file):
+    '''
+      extract cifar-10 dataset from python pickle file
+    '''
+    fo = open(file, 'rb')
+    d = pickle.load(fo, encoding='bytes')
+    # d = cPickle.load(fo)
+    fo.close()
+    x = d[b'data'].reshape([-1, 3, 32, 32])
+    # x = (x - 127.5) / 128.0
+    x = np.asarray(x, dtype=np.float32)
+    y = d[b'labels']
+    y = np.asarray(y, dtype=np.uint8)    
+
+    return {'x': x, 'y': y}
+
+
+def load(data_dir, subset='train'):
+    '''
+      load cifar-10 dataset from specified directory
+    '''
+    ext = '.bin'
+    if subset=='train':
+        fn = 'cifar-10-batches-py/data_batch_'
+        train_data = [unpickle(os.path.join(
+                    data_dir, fn + str(i))) for i in range(1, 6)]
+        trainx = np.concatenate([d['x'] for d in train_data], axis=0)
+        trainy = np.concatenate([d['y'] for d in train_data], axis=0)
+        return trainx, trainy
+    elif subset=='test':
+        test_data = unpickle(os.path.join(
+                                data_dir, 'cifar-10-batches-py/test_batch'))
+        testx = test_data['x']
+        testy = test_data['y']
+        return testx, testy
+    else:
+        raise NotImplementedError('subset should be either train or test')
+
+
+def onehot_label(labels):
+    '''
+      one-hot label encoding
+    '''
+    n_sample = labels.shape[0]
+    oh = np.zeros([n_sample, NUM_CLASSES], dtype=np.float32)
+    for i in range(n_sample):
+        oh[i, labels[i]] = 1.0
+    
+    return oh
+
+
 def load_data_ssl(params, dirn='../data'):
     '''
-      load MNIST data and split into 4 blocks
+      load CIFAR-10 data and split into 4 blocks
     '''
+    # parameter set
     n_train_lab = params['n_train_lab']
     n_train_unlab = params['n_train_unlab']
     n_val = params['n_val']
     mode = params['mode']
 
-    mnist = input_data.read_data_sets(dirn, validation_size=n_val, 
-                                      one_hot=True)
-    n_train_total = mnist.train.num_examples
+    dirn = '../data'
+    X_train, y_train0 = load(dirn, subset='train')
+    X_test, y_test0 = load(dirn, subset='test')
+    y_train = onehot_label(y_train0)
+    y_test = onehot_label(y_test0)
+
+    # step.1 - split validation set
+    X_train_tot, X_validation, y_train_tot, y_validation = \
+        random_sampling(X_train, y_train, n_labeled=n_val)
+    n_train_total = X_train_tot.shape[0]
+
+    # step.2 - split train set into labeled / unlabeled
     if (n_train_lab + n_train_unlab) > n_train_total:
         raise ValueError('inconsistent parameters')
-
-    X_train = mnist.train.images
-    y_train = mnist.train.labels
 
     # select bin_sampling or random_sampling (including inbalance)
     if mode == 'random':
         X_train_lab, X_train_unlab, y_train_lab, y_train_unlab = \
-            random_sampling(X_train, y_train, n_labeled=n_train_lab)
+            random_sampling(X_train_tot, y_train_tot, n_labeled=n_train_lab)
     else:
         X_train_lab, X_train_unlab, y_train_lab, y_train_unlab = \
-            bin_sampling(X_train, y_train, n_labeled=n_train_lab)
+            bin_sampling(X_train_tot, y_train_tot, n_labeled=n_train_lab)
 
     # cancel scaling by DataSet class constructor
-    X_train_lab = X_train_lab * 255.
-    X_train_unlab = X_train_unlab * 255.
-
     train_lab = DataSet(X_train_lab, y_train_lab, reshape=False)
     train_unlab = DataSet(X_train_unlab, y_train_unlab, reshape=False)
+    validation_set = DataSet(X_validation, y_validation, reshape=False)
+    test_set = DataSet(X_test, y_test, reshape=False)
 
-    mnist_ssl = Datasets4(train_lab=train_lab, 
+    cifar10_ssl = Datasets4(train_lab=train_lab, 
                           train_unlab=train_unlab,
                           validation=mnist.validation,
                           test=mnist.test)
-    return mnist_ssl
+    return cifar10_ssl
 
 
 def bin_sampling(X_train, y_train, n_labeled=100):
@@ -154,28 +211,31 @@ def random_sampling(X_train, y_train, n_labeled=100):
 
 def test_load_data_ssl(dirn):
     data_alloc = params()
-    mnist = load_data_ssl(data_alloc, dirn=dirn)
+    cifar = load_data_ssl(data_alloc, dirn=dirn)
     # read data
     print('\nSome test results:')
     print('num samples of train data without label = ',
-        mnist.train_unlab.num_examples)
+        cifar.train_unlab.num_examples)
     print('num samples of train data w/ label = ',
-        mnist.train_lab.num_examples)
+        cifar.train_lab.num_examples)
     print('num samples of validation data = ',
-        mnist.validation.num_examples)
+        cifar.validation.num_examples)
     print('num samples of test data = ',
-        mnist.test.num_examples)
+        cifar.test.num_examples)
 
     # next_batch
-    batch_x, batch_y = mnist.train_lab.next_batch(100)
-    batch_x_unlab, _ = mnist.train_unlab.next_batch(100)
+    batch_x, batch_y = cifar.train_lab.next_batch(100)
+    batch_x_unlab, _ = cifar.train_unlab.next_batch(100)
+    batch_xv, batch_yv = cifar.validation.next_batch(100)
 
     print('shape of batch_x = ', batch_x.shape)
     print('shape of batch_y = ', batch_y.shape)
     print('shape of batch_x(unlabelled) = ', batch_x_unlab.shape)
+    print('shape of batch_xv = ', batch_xv.shape)
+    print('shape of batch_yb = ', batch_yv.shape)
 
 
 if __name__ == '__main__':
     # test_load_data_ssl(dirn='../data')
-    dirn = '/home/tomokazu/Sources/Data/MNIST'
+    dirn = '../data'
     test_load_data_ssl(dirn=dirn)
