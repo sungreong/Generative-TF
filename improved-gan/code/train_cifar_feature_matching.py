@@ -11,7 +11,6 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.python.layers import layers
 
-from tensorflow.examples.tutorials.mnist import input_data
 from cifar_prep_ssl import load_data_ssl
 
 # MNIST dataset parameters for data loader
@@ -19,7 +18,7 @@ def dataset_params():
     params = {}
     params['n_train_lab'] = 1000
     params['n_val'] = 5000
-    params['n_train_unlab'] = 60000 - 1000 - 5000
+    params['n_train_unlab'] = 50000 - 1000 - 5000
     params['mode'] = 'random'
 
     return params
@@ -31,16 +30,33 @@ def generator(noise_z, reuse=False):
     '''
     with tf.variable_scope('generator', reuse=reuse):
         n_unit1 = 4 * 4 * 512
-        net = tf.layers.dense(noise_z,
-                    n_unit1, activation=tf.nn.relu, name='gener1')
+        net = tf.layers.dense(noise_z, n_unit1, 
+                kernel_initializer=tf.random_normal_initializer(0., 0.05),
+                activation=tf.nn.relu, name='gener1')
         net = tf.layers.batch_normalization(net)
 
+        net = tf.reshape(net, [-1, 4, 4, 512])
+        # Deconv2D -1
+        net = tf.layers.conv2d_transpose(net, 256, 
+                kernel_size=5, 
+                kernel_initializer=tf.random_normal_initializer(0., 0.05),
+                activation=tf.nn.relu, name='gener2')
+        net = tf.layers.batch_normalization(net)
 
+        # Deconv2D -2
+        net = tf.layers.conv2d_transpose(net, 128,
+                kernel_size=5, 
+                kernel_initializer=tf.random_normal_initializer(0., 0.05),
+                activation=tf.nn.relu, name='gener3')
+        net = tf.layers.batch_normalization(net)
 
-        net = tf.layers.dense(net,
-                    n_hidden, activation=tf.nn.softplus, name='gener2')
-        generator_out = tf.layers.dense(net,
-                    n_input, activation=tf.sigmoid, name='gener3')
+        # Deconv2D -3
+        net = tf.layers.conv2d_transpose(net, 3,
+                kernel_size=5, 
+                kernel_initializer=tf.random_normal_initializer(0., 0.05),
+                activation=tf.tanh, name='gener4')
+
+        generator_out =  ############### NEED Weight Normalization Layer 
 
     vars_g = tf.get_collection(
                 tf.GraphKeys.TRAINABLE_VARIABLES, scope='generator')
@@ -150,10 +166,11 @@ def evaluate(y_, y_pred):
     return accuracy
 
 def gen_fake_data():
-    n_input = 784
+    image_siz = 32
+    ch = 3
     n_class = 10
-    fake1 = np.ones([10, n_input], dtype=np.float32) * 0.1
-    fake2 = np.ones([40, n_input], dtype=np.float32) * 0.1
+    fake1 = np.ones([10, image_siz, image_siz, ch], dtype=np.float32) * 0.1
+    fake2 = np.ones([40, image_siz, image_sizm ch], dtype=np.float32) * 0.1
     fake3 = np.ones([10, n_class], dtype=np.float32) * 0.1
 
     return fake1, fake2, fake3
@@ -173,7 +190,7 @@ if __name__ == '__main__':
 
     # load data
     dataset_params = dataset_params()
-    mnist = load_data_ssl(dataset_params, '../data')
+    cifar = load_data_ssl(dataset_params, '../data')
     # fake1, fake2, fake3 = gen_fake_data()
 
     # tensorflow placeholders
@@ -182,6 +199,7 @@ if __name__ == '__main__':
     y_ = tf.placeholder(tf.float32, [None, n_class])
     z = tf.placeholder(tf.float32, [None, n_noise])
 
+    assert False
     # Graph definition
     logits, features_to_match, vars_ = inference(x_lab, x_unl, y_, z)
     loss_D, loss_G = loss(logits, y_, features_to_match)
