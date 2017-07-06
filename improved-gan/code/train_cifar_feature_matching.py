@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 #   train_cifar_feature_matching.py
-#       date. 6/12/2017
+#       date. 6/12/2017, 6/30
 #
 #   (ref.)
 #   https://github.com/openai/improved-gan/tree/master/mnist_svhn_cifar10
@@ -55,8 +55,9 @@ def generator(noise_z, reuse=False):
                 kernel_size=5, 
                 kernel_initializer=tf.random_normal_initializer(0., 0.05),
                 activation=tf.tanh, name='gener4')
-
-        generator_out =  ############### NEED Weight Normalization Layer 
+        
+        # using batch normalization instead of (original) weight normalization
+        generator_out = tf.layers.batch_normalization(net)
 
     vars_g = tf.get_collection(
                 tf.GraphKeys.TRAINABLE_VARIABLES, scope='generator')
@@ -69,28 +70,74 @@ def gaussian_noise_layer(inputs, sigma=0.1):
                              mean=0.0, stddev=sigma, dtype=tf.float32)
     return inputs + noise
 
-def discriminator(inputs, reuse=False):
-    num_units = [None, 1000, 500, 250, 250, 250, 10]
+
+def lrelu(x, leak=0.2, name="lrelu"):
+    with tf.variable_scope(name):
+        f1 = 0.5 * (1 + leak)
+        f2 = 0.5 * (1 - leak)
+        return f1 * x + f2 * abs(x)
+
+def discriminator(inputs, n_class=10, reuse=False):
+    # inputs should be [None, 32, 32, 3] shape
     with tf.variable_scope('discriminator', reuse=reuse):
-        net = gaussian_noise_layer(inputs, sigma=0.3)
-        net = tf.layers.dense(net,
-                    num_units[1], activation=tf.nn.relu, name='discr1')
-        net = gaussian_noise_layer(net, sigma=0.5)
-        net = tf.layers.dense(net,
-                    num_units[2], activation=tf.nn.relu, name='discr2')
-        net = gaussian_noise_layer(net, sigma=0.5)
-        net = tf.layers.dense(net,
-                    num_units[3], activation=tf.nn.relu, name='discr3')
-        net = gaussian_noise_layer(net, sigma=0.5)
-        net = tf.layers.dense(net,
-                    num_units[4], activation=tf.nn.relu, name='discr4')
-        net = gaussian_noise_layer(net, sigma=0.5)
-        net = tf.layers.dense(net,
-                    num_units[5], activation=tf.nn.relu, name='discr5')
-        mom_out = net       # forwarding to feature matching
-        net = gaussian_noise_layer(net, sigma=0.5)
+        net = tf.layers.dropout(inputs, rate=0.2)
+        net = tf.layers.conv2d(net, 96,
+                               kernel_size=3,
+                               padding='same',
+                               activation=lrelu, name='discr1')
+        net = tf.layers.batch_normalization(net)
+
+        net = tf.layers.conv2d(net, 96,
+                               kernel_size=3,
+                               padding='same',
+                               activation=lrelu, name='discr2')
+        net = tf.layers.batch_normalization(net)
+
+        net = tf.layers.conv2d(net, 96,
+                               kernel_size=3,
+                               strides=(2,2),
+                               padding='same',
+                               activation=lrelu, name='discr3')
+        net = tf.layers.batch_normalization(net)
+        net = tf.layers.dropout(net, rate=0.5)
+
+        net = tf.layers.conv2d(net, 192,
+                               kernel_size=3,
+                               padding='same',
+                               activation=lrelu, name='discr4')
+        net = tf.layers.batch_normalization(net)
+
+        net = tf.layers.conv2d(net, 192,
+                               kernel_size=3,
+                               padding='same',
+                               activation=lrelu, name='discr5')
+        net = tf.layers.batch_normalization(net)
+
+        net = tf.layers.conv2d(net, 192,
+                               kernel_size=3,
+                               strides=(2,2),
+                               padding='same',
+                               activation=lrelu, name='discr6')
+        net = tf.layers.batch_normalization(net)
+        net = tf.layers.dropout(net, rate=0.5)
+
+        net = tf.layers.conv2d(net, 192,
+                               kernel_size=3,
+                               padding='valid',
+                               activation=lrelu, name='discr7')
+        net = tf.layers.batch_normalization(net)
+
+        # ll.NINLayer porting
+        depth = tf.shape(net)[-1]
+        net = tf.reshape(net, [-1, depth])
+        net = tf.layers(net, 192, activation=lrelu, name='discr8')
+        net = tf.layers.batch_normalization(net)
+
+        net = tf.layers(net, 192, activation=lrelu, name='discr9')
+        net = tf.layers.batch_normalization(net)
+        
         discriminator_out = tf.layers.dense(net, 
-                    num_units[6], activation=None, name='discr6')
+                            n_class, activation=None, name='discr10')
     
     vars_d = tf.get_collection(
                 tf.GraphKeys.TRAINABLE_VARIABLES, scope='discriminator')
