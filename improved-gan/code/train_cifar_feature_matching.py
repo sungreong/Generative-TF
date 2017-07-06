@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 #   train_cifar_feature_matching.py
-#       date. 6/12/2017, 6/30
+#       date. 6/12/2017, 7/6
 #
 #   (ref.)
 #   https://github.com/openai/improved-gan/tree/master/mnist_svhn_cifar10
@@ -127,13 +127,15 @@ def discriminator(inputs, n_class=10, reuse=False):
                                activation=lrelu, name='discr7')
         net = tf.layers.batch_normalization(net)
 
+        mom_out = net   ### need debug
+
         # ll.NINLayer porting
-        depth = tf.shape(net)[-1]
-        net = tf.reshape(net, [-1, depth])
-        net = tf.layers(net, 192, activation=lrelu, name='discr8')
+        net = tf.reshape(net, [-1, 192])
+        
+        net = tf.layers.dense(net, 192, activation=lrelu, name='discr8')
         net = tf.layers.batch_normalization(net)
 
-        net = tf.layers(net, 192, activation=lrelu, name='discr9')
+        net = tf.layers.dense(net, 192, activation=lrelu, name='discr9')
         net = tf.layers.batch_normalization(net)
         
         discriminator_out = tf.layers.dense(net, 
@@ -217,7 +219,7 @@ def gen_fake_data():
     ch = 3
     n_class = 10
     fake1 = np.ones([10, image_siz, image_siz, ch], dtype=np.float32) * 0.1
-    fake2 = np.ones([40, image_siz, image_sizm ch], dtype=np.float32) * 0.1
+    fake2 = np.ones([40, image_siz, image_sizm, ch], dtype=np.float32) * 0.1
     fake3 = np.ones([10, n_class], dtype=np.float32) * 0.1
 
     return fake1, fake2, fake3
