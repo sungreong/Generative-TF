@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 #
 #   train_cifar_feature_matching.py
-#       date. 6/12/2017, 7/6
+#       date. 6/12/2017, 7/7
 #
 #   (ref.)
 #   https://github.com/openai/improved-gan/tree/master/mnist_svhn_cifar10
@@ -13,7 +13,7 @@ from tensorflow.python.layers import layers
 
 from cifar_prep_ssl import load_data_ssl
 
-# MNIST dataset parameters for data loader
+# CIFAR-10 dataset parameters for data loader
 def dataset_params():
     params = {}
     params['n_train_lab'] = 1000
@@ -27,6 +27,7 @@ def dataset_params():
 def generator(noise_z, reuse=False):
     '''
       input:    noise_z - noise of dimension [None, n_noise]
+      output:   a image - [None, 32, 32, 3]
     '''
     with tf.variable_scope('generator', reuse=reuse):
         n_unit1 = 4 * 4 * 512
@@ -36,23 +37,23 @@ def generator(noise_z, reuse=False):
         net = tf.layers.batch_normalization(net)
 
         net = tf.reshape(net, [-1, 4, 4, 512])
-        # Deconv2D -1
+        # Deconv2D -1 (output: [-1, 8, 8, 256])
         net = tf.layers.conv2d_transpose(net, 256, 
-                kernel_size=5, 
+                kernel_size=(5, 5), strides=(2, 2), padding='same',
                 kernel_initializer=tf.random_normal_initializer(0., 0.05),
                 activation=tf.nn.relu, name='gener2')
         net = tf.layers.batch_normalization(net)
 
-        # Deconv2D -2
+        # Deconv2D -2 (output: [-1, 16, 16, 128])
         net = tf.layers.conv2d_transpose(net, 128,
-                kernel_size=5, 
+                kernel_size=(5, 5), strides=(2, 2), padding='same',
                 kernel_initializer=tf.random_normal_initializer(0., 0.05),
                 activation=tf.nn.relu, name='gener3')
         net = tf.layers.batch_normalization(net)
 
-        # Deconv2D -3
+        # Deconv2D -3 (output: [-1, 32, 32, 3])
         net = tf.layers.conv2d_transpose(net, 3,
-                kernel_size=5, 
+                kernel_size=(5, 5), strides=(2, 2), padding='same',
                 kernel_initializer=tf.random_normal_initializer(0., 0.05),
                 activation=tf.tanh, name='gener4')
         
@@ -95,8 +96,7 @@ def discriminator(inputs, n_class=10, reuse=False):
 
         net = tf.layers.conv2d(net, 96,
                                kernel_size=3,
-                               strides=(2,2),
-                               padding='same',
+                               strides=(2, 2), padding='same',
                                activation=lrelu, name='discr3')
         net = tf.layers.batch_normalization(net)
         net = tf.layers.dropout(net, rate=0.5)
@@ -115,8 +115,7 @@ def discriminator(inputs, n_class=10, reuse=False):
 
         net = tf.layers.conv2d(net, 192,
                                kernel_size=3,
-                               strides=(2,2),
-                               padding='same',
+                               strides=(2, 2), padding='same',
                                activation=lrelu, name='discr6')
         net = tf.layers.batch_normalization(net)
         net = tf.layers.dropout(net, rate=0.5)
@@ -127,8 +126,6 @@ def discriminator(inputs, n_class=10, reuse=False):
                                activation=lrelu, name='discr7')
         net = tf.layers.batch_normalization(net)
 
-        mom_out = net   ### need debug
-
         # ll.NINLayer porting
         net = tf.reshape(net, [-1, 192])
         
@@ -137,14 +134,16 @@ def discriminator(inputs, n_class=10, reuse=False):
 
         net = tf.layers.dense(net, 192, activation=lrelu, name='discr9')
         net = tf.layers.batch_normalization(net)
-        
+        f_m_out = net       # for feature matching
+
+        net = tf.reshape(net, [-1, 6*6*192])    # image size = (6, 6)
         discriminator_out = tf.layers.dense(net, 
                             n_class, activation=None, name='discr10')
     
     vars_d = tf.get_collection(
                 tf.GraphKeys.TRAINABLE_VARIABLES, scope='discriminator')
 
-    return discriminator_out, mom_out, vars_d
+    return discriminator_out, f_m_out, vars_d
 
 
 # Noise generator
@@ -233,7 +232,7 @@ if __name__ == '__main__':
     learning_rate = 0.0003
     # network related constants
     n_hidden = 500
-    n_input = 28 * 28   # eq. 784
+    img_siz = 32
     n_noise = 100
     n_class = 10
 
@@ -243,12 +242,11 @@ if __name__ == '__main__':
     # fake1, fake2, fake3 = gen_fake_data()
 
     # tensorflow placeholders
-    x_lab = tf.placeholder(tf.float32, [None, n_input])
-    x_unl = tf.placeholder(tf.float32, [None, n_input])
+    x_lab = tf.placeholder(tf.float32, [None, img_siz, img_siz, 3])
+    x_unl = tf.placeholder(tf.float32, [None, img_siz, img_siz, 3])
     y_ = tf.placeholder(tf.float32, [None, n_class])
     z = tf.placeholder(tf.float32, [None, n_noise])
 
-    assert False
     # Graph definition
     logits, features_to_match, vars_ = inference(x_lab, x_unl, y_, z)
     loss_D, loss_G = loss(logits, y_, features_to_match)
@@ -262,7 +260,8 @@ if __name__ == '__main__':
     merged = tf.summary.merge_all()
     summaries_dir = '/tmp/tflogs'
     init = tf.global_variables_initializer()
-    n_samples = mnist.train_unlab.num_examples
+    # get number of unlabelled samples
+    n_samples = cifar.train_unlab.num_examples
 
     with tf.Session() as sess:
         train_writer = tf.summary.FileWriter(summaries_dir + '/train',
@@ -276,14 +275,14 @@ if __name__ == '__main__':
             total_batch = int(n_samples / batch_size)
             # Loop over all batches
             for i in range(total_batch):
-                batch_xu, _ = mnist.train_unlab.next_batch(batch_size)
-                batch_xl, batch_yl = mnist.train_lab.next_batch(batch_size)
+                batch_xu, _ = cifar.train_unlab.next_batch(batch_size)
+                batch_xl, batch_yl = cifar.train_lab.next_batch(batch_size)
                 train_fd_D = {x_lab: batch_xl, x_unl: batch_xu, 
                             y_: batch_yl}
                 _, loss_D_np = sess.run([train_op_D, loss_D],
                                         feed_dict=train_fd_D)
-                batch_xu, _ = mnist.train_unlab.next_batch(batch_size)
-                batch_xl, batch_yl = mnist.train_lab.next_batch(batch_size)
+                batch_xu, _ = cifar.train_unlab.next_batch(batch_size)
+                batch_xl, batch_yl = cifar.train_lab.next_batch(batch_size)
                 noise_z = get_noise(batch_size, n_noise)
                 train_fd_G = {x_lab: batch_xl, y_: batch_yl,
                               x_unl: batch_xu, z: noise_z}
@@ -296,7 +295,7 @@ if __name__ == '__main__':
             train_writer.add_summary(summary, epoch)
 
             # validation
-            batch_xv, batch_yv = mnist.validation.next_batch(batch_size_val)
+            batch_xv, batch_yv = cifar.validation.next_batch(batch_size_val)
             noise_z = get_noise(batch_size, n_noise)
             val_fd = {x_lab: batch_xv, x_unl: batch_xu,
                       y_: batch_yv, z: noise_z}
