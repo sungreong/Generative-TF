@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # 
-#   gan_layers.py
+#   gan_layers1.py
 #
 #   (ref.) golbin's TensorFlow tutorial codes
 #       https://github.com/golbin/TensorFlow-Tutorials
@@ -111,7 +111,7 @@ for epoch in range(total_epoch):
         ax[i].set_axis_off()
         ax[i].imshow(np.reshape(samples[i], (28, 28)))
 
-    plt.savefig('../work/samples/{}.png'.format(str(epoch).zfill(3)), bbox_inches='tight')
+    plt.savefig('../work/samples1/{}.png'.format(str(epoch).zfill(3)), bbox_inches='tight')
     plt.close(fig)
 
 

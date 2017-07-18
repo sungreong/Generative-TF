@@ -22,6 +22,7 @@ n_input = 28 * 28   # eq. 784
 n_noise = 128
 n_class = 10
 n_hidden = 256
+learning_rate = 0.001
 
 
 # TensorFlow placeholders
@@ -80,9 +81,8 @@ loss_D = loss_D_real + loss_D_gene
 loss_G = tf.reduce_mean(
                     tf.losses.sigmoid_cross_entropy(tf.ones_like(D_gene), D_gene))
 
-train_D = tf.train.AdamOptimizer().minimize(loss_D, var_list=vars_D)
-train_G = tf.train.AdamOptimizer().minimize(loss_G, var_list=vars_G)
-
+train_D = tf.train.AdamOptimizer(learning_rate).minimize(loss_D, var_list=vars_D)
+train_G = tf.train.AdamOptimizer(learning_rate).minimize(loss_G, var_list=vars_G)
 
 
 sess = tf.Session()
