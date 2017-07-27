@@ -45,22 +45,22 @@ class Generator:
         if not self.with_label:
             with tf.variable_scope(self.vs, reuse=self.reuse):
                 # reshape from inputs
-                with tf.variable_scope('reshape'):
+                with tf.variable_scope('reshape'):  # turn to [-1, 4, 4, 256]
                     net = tf.layers.dense(z, self.depths[0] * self.s_size * self.s_size)
-                    net = tf.reshape(net, [-1, self.s_size, self.s_size, self.depths[0]])   # [-1, 4, 4, 256]
+                    net = tf.reshape(net, [-1, self.s_size, self.s_size, self.depths[0]])
                     net = tf.nn.relu(tf.layers.batch_normalization(net, training=training))
                 # deconvolution (transpose of convolution) x 4
-                with tf.variable_scope('deconv1'):
+                with tf.variable_scope('deconv1'):  # turn to [-1, 8, 8, 128]
                     net = tf.layers.conv2d_transpose(net, self.depths[1], (5, 5), 
-                                                     strides=(2, 2), padding='SAME')        # [-1, 8, 8, 128]
+                                                     strides=(2, 2), padding='SAME')
                     net = tf.nn.relu(tf.layers.batch_normalization(net, training=training))
-                with tf.variable_scope('deconv2'):
+                with tf.variable_scope('deconv2'):  # turn to [-1, 16, 16, 64]
                     net = tf.layers.conv2d_transpose(net, self.depths[2], (5, 5),
-                                                     strides=(2, 2), padding='SAME')        # [-1, 16, 16, 64]
+                                                     strides=(2, 2), padding='SAME')
                     net = tf.layers.batch_normalization(net, training=training)
-                with tf.variable_scope('deconv3'):
+                with tf.variable_scope('deconv3'):  # turn to [-1, 32, 32, 3]
                     net = tf.layers.conv2d_transpose(net, self.depths[3], (5, 5),
-                                                     strides=(2, 2), padding='SAME')        # [-1, 32, 32, 3]
+                                                     strides=(2, 2), padding='SAME')
                     net = tf.layers.batch_normalization(net, training=training)
                 output = net
 
@@ -79,20 +79,20 @@ class Generator:
                     net = tf.nn.relu(tf.layers.batch_normalization(net, training=training))
                     net = tf.concat([net, label], axis=1)   # h0
 
-                with tf.variable_scope('linear2'):
+                with tf.variable_scope('linear2'):  # turn to [-1, 8, 8, 128]
                     net = tf.layers.dense(net, gf_dim*2*s_output4*s_output4, activation=None)
                     net = tf.nn.relu(tf.layers.batch_normalization(net, training=training))
-                    net = tf.reshape(net, [self.batch_size, s_output4, s_output4, self.depths[1]])  # [-1, 8, 8, 128]
+                    net = tf.reshape(net, [self.batch_size, s_output4, s_output4, self.depths[1]])
                     net = conv_cond_concat(net, yb, batch_size)
 
                 # deconvolution (transpose of convolution)
-                with tf.variable_scope('deconv1'):
+                with tf.variable_scope('deconv1'):  # turn to [-1, 16, 16, 64]
                     net = tf.layers.conv2d_transpose(net, self.depths[2], [5, 5], strides=(2, 2), padding='SAME')
-                    net = tf.nn.relu(tf.layers.batch_normalization(net, training=training))     # [-1, 16, 16, 64]
+                    net = tf.nn.relu(tf.layers.batch_normalization(net, training=training))
                     net = conv_cond_concat(net, yb, batch_size)
 
                 # output images
-                with tf.variable_scope('deconv3'):
+                with tf.variable_scope('deconv3'):  # turn to [-1, 32, 32, 3]
                     net = tf.layers.conv2d_transpose(net, self.depths[3], [5, 5], strides=(2, 2), padding='SAME')
                     output = net
         
@@ -125,17 +125,17 @@ class Discriminator:
         if not self.with_label:
             with tf.variable_scope(self.vs, reuse=self.reuse):
                 # convolution x 4
-                with tf.variable_scope('conv1'):
+                with tf.variable_scope('conv1'):    # turn to [-1, 16, 16, 64]
                     net = tf.layers.conv2d(inputs, self.depths[1], (5, 5), 
-                                           strides=(2, 2), padding='same')  # [-1, 16, 16, 64]
+                                           strides=(2, 2), padding='same')
                     net = leaky_relu(tf.layers.batch_normalization(net, training=training))
-                with tf.variable_scope('conv2'):
+                with tf.variable_scope('conv2'):    # turn to [-1, 8, 8, 128]
                     net = tf.layers.conv2d(net, self.depths[2], (5, 5),
-                                           strides=(2, 2), padding='same')  # [-1, 8, 8, 128]
+                                           strides=(2, 2), padding='same')
                     net = leaky_relu(tf.layers.batch_normalization(net, training=training))
-                with tf.variable_scope('conv3'):
+                with tf.variable_scope('conv3'):    # turn to [-1, 4, 4, 256]
                     net = tf.layers.conv2d(net, self.depths[3], (5, 5),
-                                           strides=(2, 2), padding='same')  # [-1, 4, 4, 256]
+                                           strides=(2, 2), padding='same')
                     net = leaky_relu(tf.layers.batch_normalization(net, training=training))
 
                 with tf.variable_scope('classify'):
@@ -167,7 +167,6 @@ class Discriminator:
                     net = tf.concat([net, label], 1)
 
                 output = tf.layers.dense(net, 1, activation=None, name='d_before_sigmoid')
-                # outputs = tf.nn.sigmoid(net)
 
         self.reuse = True
         self.variables = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='d')
