@@ -50,7 +50,7 @@ def main():
     init = tf.global_variables_initializer()
 
     # Training
-    n_epochs = 50
+    n_epochs = 300
     with tf.Session() as sess:
         sess.run(init)
 
