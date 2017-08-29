@@ -1,17 +1,17 @@
 #
-#   main_cifar.py
-#       date. 7/20/2017
+#   main_lsun.py
+#       date. 8/30/2017
 #
 
 import numpy as np
 import tensorflow as tf
 
 from model import DCGAN
-from load_cifar import load_data
+from load_lsun import LSUNdataset
 
 def main():
     # load data
-    cifar = load_data('../data/')
+    bedroom = LSUNdataset(dirn='../data', category='bedroom')
     # fake_x = np.ones([128, 28, 28, 1], dtype=np.float32) * 0.1
 
     # condition
@@ -21,7 +21,7 @@ def main():
     nc = 3            # # of channels in image
     ny = 10           # # of classes
     batch_size = 128  # # of examples in batch
-    npx = 32          # # of pixels width/height of images
+    npx = 64         # # of pixels width/height of images
     nz = 100          # # of dim for Z
     ngfc = 1024       # # of gen units for fully connected layers
     ndfc = 1024       # # of discrim units for fully connected layers
@@ -34,23 +34,23 @@ def main():
 
     # tensorflow placeholder
     x = tf.placeholder(tf.float32, [None, npx, npx, nc])
-    y = tf.placeholder(tf.float32, [None, ny])          # for training w/ label
+    # y = tf.placeholder(tf.float32, [None, ny])          # for training w/ label
     y_target = tf.placeholder(tf.float32, [None, ny])   # for image generation
 
     # graphs
-    dcgan = DCGAN(batch_size=batch_size, s_size=4, z_dim=nz, y_dim=ny)
+    dcgan = DCGAN(batch_size=batch_size, s_size=4, z_dim=nz, y_dim=None)
     logits_list = dcgan.inference(x, y)     # (x, y)
     g_loss, d_loss = dcgan.loss(logits_list)
     train_op = dcgan.train(g_loss, d_loss, learning_rate=lr)
 
     # images
-    images = dcgan.sample_images(label=y_target)
+    images = dcgan.sample_images(label=None)
     # images = dcgan.sample_images()
 
     init = tf.global_variables_initializer()
 
     # Training
-    n_epochs = 300
+    n_epochs = 10
     with tf.Session() as sess:
         sess.run(init)
 
@@ -62,9 +62,9 @@ def main():
 
         for e in range(1, n_epochs+1):
             for i in range(n_loop):
-                batch_x, batch_y = cifar.train.next_batch(batch_size)
-                batch_img = batch_x.reshape([-1, 32, 32, 3])
-                fd_train = {x: batch_img, y: batch_y}
+                batch_x = bedroom.next_batch(batch_size)
+                batch_img = batch_x.reshape([-1, 64, 64, 3])
+                fd_train = {x: batch_img}
                 # fd_train = {x: batch_img}
                 sess.run(train_op, feed_dict=fd_train)
                 g_loss_np, d_loss_np = sess.run([g_loss, d_loss], 
@@ -76,12 +76,11 @@ def main():
             # Generate sample images after training
             if e in [10, 20, 50, 100, 200, 300]:
                 _, batch_yv = cifar.validation.next_batch(batch_size)
-                fn_sample = '../work/samples/cifar_' + str(e) + '.jpg'
-                generated = sess.run(images, feed_dict={y_target: batch_yv})
+                fn_sample = '../work/samples/bedroom_' + str(e) + '.jpg'
+                generated = sess.run(images)
                 # generated = sess.run(images)
                 with open(fn_sample, 'wb') as fp:
                     fp.write(generated)
             
-
 if __name__ == '__main__':
     main()
