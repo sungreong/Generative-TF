@@ -10,6 +10,7 @@
 
 import io
 import os
+import pickle
 import numpy as np
 import lmdb
 from PIL import Image
@@ -17,8 +18,9 @@ from PIL import Image
 
 class LSUNdataset(object):
     def __init__(self, dirn='.', category='church_outdoor'):
-        self.category=category
-        self.db_path = os.path.join(dirn, category + '_train_lmdb')
+        self.category = category
+        self.base_path = category + '_train_lmdb'
+        self.db_path = os.path.join(dirn, self.base_path)
         self._epochs_completed = 0
         self._index_in_epoch = 0
         self.keys = np.array([])
@@ -44,17 +46,27 @@ class LSUNdataset(object):
             cursor = txn.cursor()
             tot = txn.stat()['entries']
             i = 0
-            keys = []
-            for key, _ in cursor:
-                i += 1
-                if i % 100 == 0 or i == tot:
-                    print('Fetching {:>8d} /{:>8d} keys'.format(i, tot),
-                          end='\r')
-                keys.append(key)
-            print('\nDone.')
-            self._num_examples = txn.stat()['entries']
 
-        self.keys = np.asarray(keys)
+            path = self.db_path
+            base_name = self.base_path
+            cache_file_path = os.path.join(path, '_cache_' + base_name + '.pkl')
+            print('cache_file_path = ', cache_file_path)        # DEBUG
+
+            if os.path.isfile(cache_file_path):
+                self.keys = pickle.load(open(cache_file_path, 'rb'))
+                self._num_examples = tot
+            else:
+                keys = []
+                for key, _ in cursor:
+                    i += 1
+                    if i % 1000 == 0 or i == tot:
+                        print('Fetching {:>8d} /{:>8d} keys'.format(i, tot),
+                            end='\r')
+                    keys.append(key)
+                print('\nDone.')
+                self._num_examples = tot
+                self.keys = np.asarray(keys)
+                pickle.dump(self.keys, open(cache_file_path, 'wb'))
 
     def get_image_by_keys(self, keys, img_size=64):
         txn = self.env.begin(write=False)
@@ -132,10 +144,10 @@ class LSUNdataset(object):
 
 
 if __name__ == '__main__':
-    church = LSUNdataset(dirn='../LSUNdataset', category='church_outdoor')
-    
+    church = LSUNdataset(dirn='../data', category='church_outdoor')
     church.keys_fetch()     # takes several minutes
     print('size of one key = ', len(church.keys[0]))
+
     im = church.next_batch(10)
     print('shape of batch image = ', im.shape)
 
@@ -151,4 +163,4 @@ if __name__ == '__main__':
 
     # show data sample images
     im = Image.fromarray(big_image)
-    im.save('sample.png')
+    im.save('../work/sample.png')
