@@ -1,6 +1,6 @@
 #
 #   main_lsun.py
-#       date. 8/30/2017
+#       date. 8/31/2017
 #
 
 import numpy as np
@@ -57,10 +57,10 @@ def main():
 
         # loop control
         n_sample = bedroom.num_examples
-        n_loop = n_sample // batch_size
+        n_loop = n_sample // batch_size     # for LSUN bedroom dataset, n_loop = 23696
         if n_sample % batch_size != 0:
             n_loop += 1
-
+        
         for e in range(1, n_epochs+1):
             for i in range(n_loop):
                 batch_x = bedroom.next_batch(batch_size, img_size=32)
@@ -70,18 +70,22 @@ def main():
                 sess.run(train_op, feed_dict=fd_train)
                 g_loss_np, d_loss_np = sess.run([g_loss, d_loss], 
                                                 feed_dict=fd_train)
+                # print status
+                if i % 10 == 0:
+                    print((' ecpoch {:>5d}: ({:>8d} /{:>8d}) :'
+                          'g_loss={:>10.4f}, d_loss={:>10.4f}').format(
+                          e, i, n_loop, g_loss_np, d_loss_np))
 
-            print('ecpoch {:>5d}: g_loss={:>11.4f}, d_loss={:>11.4f}'.format(
-                                            e, g_loss_np, d_loss_np))
+                if i == 100:
+                    break
 
             # Generate sample images after training
-            if e in [10, 20, 50, 100, 200, 300]:
-                _, batch_yv = cifar.validation.next_batch(batch_size)
+            if e in [1, 2, 5, 10]:
                 fn_sample = '../work/samples/bedroom_' + str(e) + '.jpg'
                 generated = sess.run(images)
                 # generated = sess.run(images)
                 with open(fn_sample, 'wb') as fp:
                     fp.write(generated)
-            
+
 if __name__ == '__main__':
     main()
