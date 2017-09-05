@@ -1,7 +1,7 @@
 #
 #   model.py
 #       model definition using "tf.layers" API - network is adapted to CIFAR-10
-#       date. 7/20/2017
+#       date. 7/20/2017, 9/5
 #
 
 import numpy as np
@@ -16,24 +16,31 @@ def conv_cond_concat(x, y, batch_size):
         x, y*tf.ones([batch_size, x_shapes[1], x_shapes[2], y_shapes[3]])], 3)
 
 
-class Generator:
-    def __init__(self, depths=[256, 128, 64], s_size=4, batch_size=128, 
+class Generator(object):
+    def __init__(self, g_depth, g_imsize, batch_size=128, 
                  y_dim=None, vs='generator'):
-        '''
+        """
           args.:
-            depths: list of image depth(channel)
-            s_size: starting image size (i.e. starting [4, 4, 1024])
-        '''
-        output_depth = 3    # for cifar-10 data
-        self.vs = vs        # variable scope
-        self.depths = depths + [output_depth]
-        self.s_size = s_size
+            g_depth: image depth (channel) parameters
+            g_imsize: image size parameters
+        """
+        self.vs = vs                # variable scope
+        self.depths = g_depth       # image depth parameters
+        self.imsize = g_imsize      # image size parameters
         self.batch_size = batch_size
         self.y_dim = y_dim
         if y_dim != None:
             self.with_label = True
         else:
             self.with_label = False
+
+        # calculate stride list from g_imsize
+        strd = [g_imsize[i] // g_imsize[i-1] for i in range(1, len(g_imsize)]
+        for s in strd:
+            if (s != 1) and (s != 2):       # stride should be 1 or 2
+                raise ValueError('stride is invalid.')
+        self.stride = [(s, s) for s in strd]
+
         self.gfc_dim = 1024
         self.reuse = False
 
@@ -41,36 +48,36 @@ class Generator:
         z = tf.convert_to_tensor(z)
         y_dim = self.y_dim
         batch_size = self.batch_size
-        gf_dim = 64     # Dimension of gen filters in first conv layer. [64]
         if not self.with_label:
             with tf.variable_scope(self.vs, reuse=self.reuse):
                 # reshape from inputs
                 with tf.variable_scope('reshape'):  # turn to [-1, 4, 4, 256]
-                    net = tf.layers.dense(z, self.depths[0] * self.s_size * self.s_size)
-                    net = tf.reshape(net, [-1, self.s_size, self.s_size, self.depths[0]])
+                    s_size = self.imsiz[0]
+                    net = tf.layers.dense(z, self.depths[0] * s_size * s_size)
+                    net = tf.reshape(net, [-1, s_size, s_size, self.depths[0]])
                     net = tf.nn.relu(tf.layers.batch_normalization(net, training=training))
                 # deconvolution (transpose of convolution) x 4
                 with tf.variable_scope('deconv1'):  # turn to [-1, 8, 8, 128]
                     net = tf.layers.conv2d_transpose(net, self.depths[1], (5, 5), 
-                                                     strides=(2, 2), padding='SAME')
+                        strides=self.stride[0], padding='SAME')
                     net = tf.nn.relu(tf.layers.batch_normalization(net, training=training))
                 with tf.variable_scope('deconv2'):  # turn to [-1, 16, 16, 64]
                     net = tf.layers.conv2d_transpose(net, self.depths[2], (5, 5),
-                                                     strides=(2, 2), padding='SAME')
+                        strides=self.stride[1], padding='SAME')
                     net = tf.layers.batch_normalization(net, training=training)
                 with tf.variable_scope('deconv3'):  # turn to [-1, 32, 32, 3]
                     net = tf.layers.conv2d_transpose(net, self.depths[3], (5, 5),
-                                                     strides=(2, 2), padding='SAME')
+                        strides=self.stride[2], padding='SAME')
                     net = tf.layers.batch_normalization(net, training=training)
+                if len(self.depths) > 4:
+                    with tf.variable_scope('deconv4'):  # turn to [-1, 32, 32, 3]
+                        net = tf.layers.conv2d_transpose(net, self.depths[4], (5, 5),
+                            strides=self.stride[3], padding='SAME')
+                        net = tf.layers.batch_normalization(net, training=training)
                 output = net
 
         else:   # generator with Labels
             with tf.variable_scope('g_cond', reuse=self.reuse):
-                # image size
-                s_output = 32
-                s_output2 = int(s_output/2) # 16
-                s_output4 = int(s_output/4) #  8
-
                 # reshape from inputs
                 with tf.variable_scope('linear1'):
                     yb = tf.reshape(label, [self.batch_size, 1, 1, y_dim])
@@ -79,22 +86,29 @@ class Generator:
                     net = tf.nn.relu(tf.layers.batch_normalization(net, training=training))
                     net = tf.concat([net, label], axis=1)   # h0
 
-                with tf.variable_scope('linear2'):  # turn to [-1, 8, 8, 128]
-                    net = tf.layers.dense(net, gf_dim*2*s_output4*s_output4, activation=None)
+                with tf.variable_scope('linear2'):          # h1
+                    imsize1 = self.imsize[1]
+                    net = tf.layers.dense(net, gf_dim*imsize1*imsize1, activation=None)
                     net = tf.nn.relu(tf.layers.batch_normalization(net, training=training))
-                    net = tf.reshape(net, [self.batch_size, s_output4, s_output4, self.depths[1]])
+                    net = tf.reshape(net, [self.batch_size, imsize1, imsize1, self.depths[1]])
                     net = conv_cond_concat(net, yb, batch_size)
 
                 # deconvolution (transpose of convolution)
-                with tf.variable_scope('deconv1'):  # turn to [-1, 16, 16, 64]
+                with tf.variable_scope('deconv1'):          # h2
                     net = tf.layers.conv2d_transpose(net, self.depths[2], [5, 5], strides=(2, 2), padding='SAME')
                     net = tf.nn.relu(tf.layers.batch_normalization(net, training=training))
                     net = conv_cond_concat(net, yb, batch_size)
 
+                if len(self.depth) > 4:
+                    with tf.variable_scope('deconv2'):
+                        net = tf.layers.conv2d_transpose(net, self.depths[3], [5, 5], strides=(2, 2), padding='SAME')
+                        net = tf.nn.relu(tf.layers.batch_normalization(net, training=training))
+                        net = conv_cond_concat(net, yb, batch_size)
+
                 # output images
-                with tf.variable_scope('deconv3'):  # turn to [-1, 32, 32, 3]
-                    net = tf.layers.conv2d_transpose(net, self.depths[3], [5, 5], strides=(2, 2), padding='SAME')
-                    output = net
+                with tf.variable_scope('deconv3'):
+                    net = tf.layers.conv2d_transpose(net, self.depths[-1], [5, 5], strides=(2, 2), padding='SAME')
+                output = net
         
         self.reuse = True
         self.variables = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='g')
@@ -102,11 +116,16 @@ class Generator:
         return output
 
 
-class Discriminator:
-    def __init__(self, depths=[64, 128, 256], batch_size=128, 
+class Discriminator(object):
+    def __init__(self, d_depth, d_imsize, batch_size=128, 
                  y_dim=None, vs='discriminator'):
-        input_depth = 3     # for cifar-10 data
-        self.depths = [input_depth] + depths
+        """
+          args.:
+            d_depth:    image depth (channel) parameters
+            d_imsize:   image size parameters
+        """
+        self.depths = d_depth
+        self.imsize = d_imsize
         self.reuse = False
         self.batch_size = batch_size
         self.y_dim = y_dim
@@ -114,6 +133,14 @@ class Discriminator:
             self.with_label = True
         else:
             self.with_label = False
+
+        # calculate stride list from d_imsize
+        strd = [(d_imsize[i-1]+1) // d_imsize[i] for i in range(1, len(d_imsize)]
+        for s in strd:
+            if (s != 1) and (s != 2):       # stride should be 1 or 2
+                raise ValueError('stride is invalid.')
+        self.stride = [(s, s) for s in strd]
+
         self.vs = vs
         self.dfc_dim = 1024
 
@@ -124,19 +151,25 @@ class Discriminator:
         batch_size = self.batch_size
         if not self.with_label:
             with tf.variable_scope(self.vs, reuse=self.reuse):
-                # convolution x 4
-                with tf.variable_scope('conv1'):    # turn to [-1, 16, 16, 64]
+                # convolution layers
+                with tf.variable_scope('conv1'):
                     net = tf.layers.conv2d(inputs, self.depths[1], (5, 5), 
-                                           strides=(2, 2), padding='same')
+                                           strides=self.stride[0], padding='same')
                     net = leaky_relu(tf.layers.batch_normalization(net, training=training))
-                with tf.variable_scope('conv2'):    # turn to [-1, 8, 8, 128]
+                with tf.variable_scope('conv2'):
                     net = tf.layers.conv2d(net, self.depths[2], (5, 5),
-                                           strides=(2, 2), padding='same')
+                                           strides=self.stride[1], padding='same')
                     net = leaky_relu(tf.layers.batch_normalization(net, training=training))
-                with tf.variable_scope('conv3'):    # turn to [-1, 4, 4, 256]
+                with tf.variable_scope('conv3'):
                     net = tf.layers.conv2d(net, self.depths[3], (5, 5),
-                                           strides=(2, 2), padding='same')
+                                           strides=self.stride[2], padding='same')
                     net = leaky_relu(tf.layers.batch_normalization(net, training=training))
+                
+                if len(self.depth) > 4:
+                    with tf.variable_scope('conv4'):
+                        net = tf.layers.conv2d(net, self.depths[4], (5, 5),
+                                           strides=self.stride[3], padding='same')
+                        net = leaky_relu(tf.layers.batch_normalization(net, training=training))
 
                 with tf.variable_scope('classify'):
                     # batch_size = outputs.get_shape()[0].value
@@ -174,17 +207,17 @@ class Discriminator:
         return output
 
 
-class DCGAN:
+class DCGAN(object):
     def __init__(self,
-                 batch_size=128, s_size=4, z_dim=100, y_dim=None,
-                 g_depths=[256, 128, 64],
-                 d_depths=[64, 128, 256]):
+                 batch_size=128, z_dim=100, y_dim=None,
+                 g_depths=(1024, 512, 256, 128, 3), g_imsize=(4, 8, 16, 32, 64),
+                 d_depths=(3, 64, 128, 256, 512), d_imsize=(64, 32, 16, 8, 4)):
         self.batch_size = batch_size
-        self.s_size = s_size
+        # self.s_size = s_size
         self.z_dim = z_dim
         self.y_dim = y_dim
-        self.g = Generator(depths=g_depths, s_size=self.s_size, y_dim=y_dim)
-        self.d = Discriminator(depths=d_depths, batch_size=batch_size, y_dim=y_dim)
+        self.g = Generator(g_depths, g_imsize, batch_size=batch_size, y_dim=y_dim)
+        self.d = Discriminator(d_depths, d_imsize, batch_size=batch_size, y_dim=y_dim)
 
     # Noise generator
     def get_noise(self):
